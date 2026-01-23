@@ -29,18 +29,18 @@
 
 ---
 
-### ✨ Features
+### Features
 
-- Interactive menu – run single modules or everything at once (`A`)
+- Interactive menu run single modules or everything at once (`A`)
 - Basic AMSI bypass via reflection (included at the top)
 - Privilege escalation attempt (UAC fallback when not elevated)
-- **Plain text output by default** – easy to read & exfiltrate immediately
+- **Plain text output by default** easy to read & exfiltrate immediately
 - Optional XOR + Base64 encoding (key 0x42 → `.xor64`) via menu option `E`
-- No binaries dropped – uses only native Windows commands & PowerShell
+- No binaries dropped uses only native Windows commands & PowerShell
 - Designed for interactive RDP sessions (user or elevated context)
 - Timestamped loot folder created on Desktop
 
-### 🛠️ Enumeration Modules
+### Enumeration Modules
 
 | #  | Module                                      | Admin?       | Main Output File(s)                          | Purpose / Typical Value                   |
 |----|---------------------------------------------|--------------|----------------------------------------------|-------------------------------------------|
@@ -58,16 +58,16 @@
 | E  | Encode all loot (XOR+Base64)                | —            | All files → `.xor64` (originals deleted)     | Optional obfuscation before exfil         |
 | 0  | Exit                                        | —            | —                                            | —                                         |
 
-### 🚀 Quick Start
+### Quick Start
 
-**Method 1 – Paste & Execute** (recommended in most RDP scenarios)
+**Method 1 Paste & Execute** (recommended in most RDP scenarios)
 
 1. Open PowerShell in the RDP session (preferably as administrator)
 2. Copy the **entire script** from [`rdp-cred-enum-toolkit.ps1`](rdp-cred-enum-toolkit.ps1)
 3. Paste it into the PowerShell console and press Enter
 4. Use the menu: type a number (1–10), `A` (all), or `E` (encode loot)
 
-**Method 2 – Encoded one-liner** (better for evasion / memory-only execution)
+**Method 2 Encoded one-liner** (better for evasion / memory-only execution)
 
 Generate the Base64-encoded version of the full script first (on your machine):
 
